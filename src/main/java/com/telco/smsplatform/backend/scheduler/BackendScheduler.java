@@ -1,11 +1,10 @@
 package com.telco.smsplatform.backend.scheduler;
 
+import com.telco.smsplatform.backend.service.MessageProcessingService;
 import com.telco.smsplatform.db.entity.SendMsgEntity;
-import com.telco.smsplatform.db.repository.SendMsgRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestTemplate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -13,64 +12,27 @@ import java.util.List;
 @Component
 public class BackendScheduler {
 
-    private final SendMsgRepository sendMsgRepository;
-    private final RestTemplate restTemplate;
+    private final MessageProcessingService messageProcessingService;
 
-    public BackendScheduler(SendMsgRepository sendMsgRepository) {
-        this.sendMsgRepository = sendMsgRepository;
-        this.restTemplate = new RestTemplate();
+    public BackendScheduler(MessageProcessingService messageProcessingService) {
+        this.messageProcessingService = messageProcessingService;
     }
 
-    @Scheduled(fixedRate = 1000) // Every 1 second
+    @Scheduled(fixedRate = 1000)
     public void processMessages() {
-        // Fetch messages with status = NEW
-        List<SendMsgEntity> newMessages = sendMsgRepository.findAll()
-                .stream()
-                .filter(msg -> "NEW".equalsIgnoreCase(msg.getStatus()))
-                .toList();
-
+        List<SendMsgEntity> newMessages = messageProcessingService.fetchNewMessages();
         if (newMessages.isEmpty()) {
             log.info("No NEW messages found at {}", LocalDateTime.now());
             return;
         }
-
         log.info("Found {} NEW messages to process", newMessages.size());
-        for (SendMsgEntity msg : newMessages) {
+        newMessages.forEach(msg -> {
             try {
-                // Mark as INPROCESS
-                msg.setStatus("INPROCESS");
-                log.info("Processing message ID: {} Mobile: {}", msg.getId(), msg.getMobile());
-                sendMsgRepository.save(msg);
-
-                // Call Telecom API
-                String telecomUrl = String.format(
-                        "http://localhost:8080/telco/smsc?account_id=%d&mobile=%d&message=%s",
-                        msg.getAccountId(),
-                        msg.getMobile(),
-                        msg.getMessage()
-                );
-
-                String response = restTemplate.getForObject(telecomUrl, String.class);
-
-                // Update status & response
-                msg.setTelcoResponse(response);
-                if (response != null && response.contains("STATUS: ACCEPTED")) {
-                    msg.setStatus("SENT");
-                } else {
-                    msg.setStatus("FAILED");
-                }
-                msg.setSentTs(LocalDateTime.now());
-                sendMsgRepository.save(msg);
-
-                log.info("Message sent to Telecom API: {}", msg.getId());
-
+                messageProcessingService.processMessage(msg);
             } catch (Exception e) {
-                msg.setStatus("FAILED");
-                msg.setTelcoResponse("Error: " + e.getMessage());
-                sendMsgRepository.save(msg);
-                log.warn("Error sending message ID {}: {}" , msg.getId(), e.getMessage());
+                log.error("Error processing message {}: {}", msg.getId(), e.getMessage());
+                throw e;
             }
-        }
+        });
     }
 }
-

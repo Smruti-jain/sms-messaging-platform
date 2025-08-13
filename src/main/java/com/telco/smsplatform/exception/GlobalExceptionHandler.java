@@ -1,8 +1,7 @@
-package com.telco.smsplatform.customer.exception;
+package com.telco.smsplatform.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -16,7 +15,7 @@ public class GlobalExceptionHandler {
         String errorMessage = ex.getBindingResult().getAllErrors()
                 .stream()
                 .map(error -> error.getDefaultMessage())
-                .findFirst()
+                .reduce((msg1, msg2) -> msg1 + " | " + msg2)
                 .orElse("Invalid request");
 
         return new ResponseEntity<>(
